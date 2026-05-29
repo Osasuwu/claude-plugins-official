@@ -16,18 +16,20 @@ Performs automated code review on a pull request using multiple specialized agen
 1. Checks if review is needed (skips closed, draft, trivial, or already-reviewed PRs)
 2. Gathers relevant guideline files from the repository — root and per-directory CLAUDE.md, plus SOUL.md / AGENTS.md / SKILL.md when present (many projects split behavioral and coding rules across separate files)
 3. Summarizes the pull request changes
-4. Launches 8 parallel agents to independently review:
+4. Launches 10 parallel agents to independently review:
    - **Agent #1** (Sonnet): Guideline-file compliance (CLAUDE.md + related)
    - **Agent #2** (Sonnet): Shallow scan for obvious bugs in the changes
    - **Agent #3** (Sonnet): Git blame / history context analysis
    - **Agent #4** (Sonnet): Comments on prior PRs that touched these files
-   - **Agent #5** (Sonnet): Adherence to in-code guidance comments
+   - **Agent #5** (Sonnet, *logic-leak*): Flags feature-specific logic (one-off business rules, env/format/product conditionals) added to previously-generic shared modules, plus in-code guidance comments the changes contradict
    - **Agent #6** (Sonnet, *diff-coherence*): Compares the PR narrative (title / body / commit messages) against `gh pr diff` and flags **claimed-missing** (the PR asserts a change the diff does not contain — a subagent-fabrication signature) and **silent-scope-creep** (substantive edits unmentioned in the narrative)
    - **Agent #7** (Haiku, *cross-device integrity*): Pattern-scans the diff for portability hazards — hardcoded absolute paths with usernames, hostnames, ports, OS-specific assumptions without a guard
    - **Agent #8** (Haiku, *smoke / static-check*): Runs `python -m py_compile`, `bash -n`, `node --check` on script-like files in the diff. Static syntax check only — does not execute, install dependencies, or attempt full TypeScript compilation
+   - **Agent #9** (Haiku, *structural growth tripwire*): Mechanically flags files that cross 1000 lines or grow ≥300 lines (now ≥800) in the PR — pure size signal, no remediation advice; skips lockfiles, fixtures, generated and vendored code
+   - **Agent #10** (Sonnet, *simplification scout*): Examines the largest net-add chunks and proposes a simpler shape where the same behavior fits in noticeably less code without weakening the public interface or correctness; at most 2 findings, informational (does not block merge)
 5. Scores each issue 0-100 for confidence level
-6. Filters out issues below 80 confidence threshold
-7. Posts review comment with high-confidence issues only
+6. Filters out issues below 80 confidence threshold, then splits survivors into a **code-review bucket** (#1–9, merge-gate) and a **simplification bucket** (#10, informational)
+7. Posts the high-confidence findings — a `### Code review` comment for the merge-gate bucket and, when non-empty, a separate `### Simplification opportunities` comment that does not block merge
 
 **Usage:**
 ```bash
@@ -40,14 +42,14 @@ Performs automated code review on a pull request using multiple specialized agen
 /code-review
 
 # Claude will:
-# - Launch 4 review agents in parallel
+# - Launch 10 review agents in parallel
 # - Score each issue for confidence
 # - Post comment with issues ≥80 confidence
 # - Skip posting if no high-confidence issues found
 ```
 
 **Features:**
-- 8 independent reviewers (6 Sonnet semantic, 2 Haiku mechanical) for comprehensive coverage
+- 10 independent reviewers (7 Sonnet semantic, 3 Haiku mechanical) for comprehensive coverage
 - Confidence-based scoring reduces false positives (threshold: 80)
 - Guideline compliance across CLAUDE.md / SOUL.md / AGENTS.md / SKILL.md
 - Bug detection focused on changes (not pre-existing issues)
@@ -150,7 +152,7 @@ This plugin is included in the Claude Code repository. The command is automatica
 
 **Solution**:
 - Normal for large changes - agents run in parallel
-- 4 independent agents ensure thoroughness
+- 10 independent agents ensure thoroughness
 - Consider splitting large PRs into smaller ones
 
 ### Too many false positives
@@ -227,8 +229,8 @@ Edit `commands/code-review.md` to add or modify agent tasks:
 ## Technical Details
 
 ### Agent architecture
-- **6x Sonnet reviewers** (semantic): guideline compliance, bug scan, git history, prior-PR comments, in-code guidance, diff-coherence
-- **2x Haiku reviewers** (mechanical): cross-device integrity (path/username pattern scan), static-check smoke (`py_compile` / `bash -n` / `node --check`)
+- **7x Sonnet reviewers** (semantic): guideline compliance, bug scan, git history, prior-PR comments, logic-leak, diff-coherence, simplification scout
+- **3x Haiku reviewers** (mechanical): cross-device integrity (path/username pattern scan), static-check smoke (`py_compile` / `bash -n` / `node --check`), structural-growth tripwire (line-count thresholds)
 - **Nx Haiku confidence scorers**: One per issue for independent 0–100 scoring
 
 ### Scoring system
