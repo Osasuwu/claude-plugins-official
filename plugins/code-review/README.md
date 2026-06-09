@@ -16,7 +16,7 @@ Performs automated code review on a pull request using multiple specialized agen
 1. Checks if review is needed (skips closed, draft, trivial, or already-reviewed PRs)
 2. Gathers relevant guideline files from the repository — root and per-directory CLAUDE.md, plus SOUL.md / AGENTS.md / SKILL.md when present (many projects split behavioral and coding rules across separate files)
 3. Summarizes the pull request changes
-4. Launches 10 parallel agents to independently review:
+4. Launches 12 parallel agents to independently review:
    - **Agent #1** (Sonnet): Guideline-file compliance (CLAUDE.md + related)
    - **Agent #2** (Sonnet): Shallow scan for obvious bugs in the changes
    - **Agent #3** (Sonnet): Git blame / history context analysis
@@ -27,8 +27,10 @@ Performs automated code review on a pull request using multiple specialized agen
    - **Agent #8** (Haiku, *smoke / static-check*): Runs `python -m py_compile`, `bash -n`, `node --check` on script-like files in the diff. Static syntax check only — does not execute, install dependencies, or attempt full TypeScript compilation
    - **Agent #9** (Haiku, *structural growth tripwire*): Mechanically flags files that cross 1000 lines or grow ≥300 lines (now ≥800) in the PR — pure size signal, no remediation advice; skips lockfiles, fixtures, generated and vendored code
    - **Agent #10** (Sonnet, *simplification scout*): Examines the largest net-add chunks and proposes a simpler shape where the same behavior fits in noticeably less code without weakening the public interface or correctness; at most 2 findings, informational (does not block merge)
+   - **Agent #11** (Sonnet, *AC-conformance*): The intent gate — finds the linked issue (`Closes #NNN`), extracts its acceptance criteria, and judges each AC item against the diff as satisfied / not-addressed / contradicted; flags only concretely unmet criteria (treats the AC as the authoritative, author-owned spec, judges conformance not wisdom)
+   - **Agent #12** (Haiku, *integration tripwire*): Mechanically applies the project's own integration checklist (CLAUDE.md / AGENTS.md "обязательно для каждого изменения"-style rules) as touched-X-implies-touched-Y checks — backend↔frontend, model↔consumers, config↔environments, pipeline-stage↔downstream — flagging dangling co-changes the diff omits; returns nothing if no such checklist exists
 5. Scores each issue 0-100 for confidence level
-6. Filters out issues below 80 confidence threshold, then splits survivors into a **code-review bucket** (#1–9, merge-gate) and a **simplification bucket** (#10, informational)
+6. Filters out issues below 80 confidence threshold, then splits survivors into a **code-review bucket** (#1–9, #11, #12, merge-gate) and a **simplification bucket** (#10, informational)
 7. Posts the high-confidence findings — a `### Code review` comment for the merge-gate bucket and, when non-empty, a separate `### Simplification opportunities` comment that does not block merge
 
 **Usage:**
@@ -42,19 +44,21 @@ Performs automated code review on a pull request using multiple specialized agen
 /code-review
 
 # Claude will:
-# - Launch 10 review agents in parallel
+# - Launch 12 review agents in parallel
 # - Score each issue for confidence
 # - Post comment with issues ≥80 confidence
 # - Skip posting if no high-confidence issues found
 ```
 
 **Features:**
-- 10 independent reviewers (7 Sonnet semantic, 3 Haiku mechanical) for comprehensive coverage
+- 12 independent reviewers (8 Sonnet semantic, 4 Haiku mechanical) for comprehensive coverage
 - Confidence-based scoring reduces false positives (threshold: 80)
 - Guideline compliance across CLAUDE.md / SOUL.md / AGENTS.md / SKILL.md
 - Bug detection focused on changes (not pre-existing issues)
 - Historical context analysis via git blame
 - **Diff-coherence audit** — detects fabricated change claims (e.g., a subagent reports completion but the work didn't land in the diff)
+- **AC-conformance gate** — verifies the diff against the linked issue's acceptance criteria (did the change solve the *assigned* problem, not just solve *a* problem cleanly)
+- **Integration tripwire** — applies the project's own co-change checklist to catch dangling ends (backend changed but frontend not wired, model changed but consumers missed)
 - **Cross-device integrity** — flags hardcoded paths, usernames, ports that won't survive a teammate's machine
 - **Static-check smoke** — runs syntax-only validation on changed scripts
 - Automatic skipping of closed, draft, or already-reviewed PRs
@@ -152,7 +156,7 @@ This plugin is included in the Claude Code repository. The command is automatica
 
 **Solution**:
 - Normal for large changes - agents run in parallel
-- 10 independent agents ensure thoroughness
+- 12 independent agents ensure thoroughness
 - Consider splitting large PRs into smaller ones
 
 ### Too many false positives
@@ -229,8 +233,8 @@ Edit `commands/code-review.md` to add or modify agent tasks:
 ## Technical Details
 
 ### Agent architecture
-- **7x Sonnet reviewers** (semantic): guideline compliance, bug scan, git history, prior-PR comments, logic-leak, diff-coherence, simplification scout
-- **3x Haiku reviewers** (mechanical): cross-device integrity (path/username pattern scan), static-check smoke (`py_compile` / `bash -n` / `node --check`), structural-growth tripwire (line-count thresholds)
+- **8x Sonnet reviewers** (semantic): guideline compliance, bug scan, git history, prior-PR comments, logic-leak, diff-coherence, simplification scout, AC-conformance
+- **4x Haiku reviewers** (mechanical): cross-device integrity (path/username pattern scan), static-check smoke (`py_compile` / `bash -n` / `node --check`), structural-growth tripwire (line-count thresholds), integration tripwire (checklist co-change scan)
 - **Nx Haiku confidence scorers**: One per issue for independent 0–100 scoring
 
 ### Scoring system
