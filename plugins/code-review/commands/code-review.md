@@ -11,6 +11,15 @@ To do this, follow these steps precisely:
 1. Use a Haiku agent to check if the pull request (a) is closed, (b) is a draft, (c) does not need a code review (eg. because it is an automated pull request, or is very simple and obviously ok), or (d) already has a code review from you from earlier. If so, do not proceed.
 2. Use another Haiku agent to give you a list of file paths to (but not the contents of) any relevant guideline files from the codebase. Look for, in order: (a) the root CLAUDE.md, (b) CLAUDE.md files in the directories whose files the pull request modified, (c) any SOUL.md, AGENTS.md, or similar persona/identity files that encode behavioral rules (these often live separately from coding rules and are still normative for review), (d) SKILL.md or agent-definition files for any skill/subagent the PR modifies. Treat all of these as normative when reviewing — many projects split rules across several markdown files
 3. Use a Haiku agent to view the pull request, and ask the agent to return a summary of the change
+3.5. Use a Haiku agent to scan all existing comments on the PR for HTML markers in the format `<!-- DESIGN_LOCKED: <UUID> | <topic> -->`. These markers are posted by the rework skill (rework/SKILL.md section 3b) when it skips a design-level finding because a `record_decision` entry already resolved that question. Collect each match as a locked design topic: `<UUID>: <topic>`. If any locked topics are found, prepend the following block to the prompt of EACH of the 12 reviewer agents in step 4:
+
+   ```
+   DESIGN-LOCKED decisions for this PR -- do NOT raise findings about these topics (they were already resolved via record_decision and the rework skill would skip them again):
+   <UUID>: <topic>
+   ... (one per line)
+   ```
+
+   This prevents the reviewer from re-raising architectural decisions that have already been recorded and accepted, which was the root cause of PR #1256 requiring 7 rework rounds (the reviewer oscillated on the same design choice across rounds 3-7). If no DESIGN_LOCKED markers are found, skip the preamble entirely.
 4. Then, launch 12 parallel reviewer agents (Sonnet for #1–6, #10, #11 — semantic review; Haiku for #7–9 and #12 — mechanical / pattern-based). The agents should do the following, then return a list of issues and the reason each issue was flagged (eg. CLAUDE.md adherence, bug, historical git context, diff coherence, cross-device, smoke, structural growth, simplification opportunity, AC conformance, integration coverage, etc.):
    a. Agent #1: Audit the changes to make sure they compily with the CLAUDE.md and any related guideline files (SOUL.md, AGENTS.md, SKILL.md) found in step 2. Note that these files are guidance for Claude as it writes code, so not all instructions will be applicable during code review.
    b. Agent #2: Read the file changes in the pull request, then do a shallow scan for obvious bugs. Avoid reading extra context beyond the changes, focusing just on the changes themselves. Focus on large bugs, and avoid small issues and nitpicks. Ignore likely false positives.
