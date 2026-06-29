@@ -1,5 +1,5 @@
 ---
-allowed-tools: Bash(gh issue view:*), Bash(gh search:*), Bash(gh issue list:*), Bash(gh pr comment:*), Bash(gh pr diff:*), Bash(gh pr view:*), Bash(gh pr list:*), Bash(python -m py_compile:*), Bash(python3 -m py_compile:*), Bash(bash -n:*), Bash(node --check:*), Bash(git show:*), Bash(wc:*)
+allowed-tools: Bash(gh issue view:*), Bash(gh search:*), Bash(gh issue list:*), Bash(gh pr comment:*), Bash(gh pr diff:*), Bash(gh pr view:*), Bash(gh pr list:*), Bash(python -m py_compile:*), Bash(python3 -m py_compile:*), Bash(bash -n:*), Bash(node --check:*), Bash(git show:*), Bash(git blame:*), Bash(git log:*), Bash(wc:*)
 description: Code review a pull request
 disable-model-invocation: false
 ---
@@ -45,7 +45,15 @@ To do this, follow these steps precisely:
 
    If BOTH buckets are empty, do not proceed (skip to no-issues comment in step 8). Otherwise proceed.
 7. Use a Haiku agent to repeat the eligibility check from #1, to make sure that the pull request is still eligible for code review.
-8. Finally, use the gh bash command to comment back on the pull request. Post UP TO TWO separate comments depending on which buckets from step 6 are non-empty:
+8. Finally, use the gh bash command to comment back on the pull request.
+
+   **Posting discipline (MANDATORY — read before posting):**
+   - **`gh pr comment` is pre-authorized and always works.** Do NOT post a `test`, `PLACEHOLDER`, `ping`, "checking auth", or any other probe/scratch comment to verify that posting works or to check formatting. It does work. Compose the real comment in full, then post it once. Probe comments leak onto the PR, get parsed by the downstream merge gate, and are pure noise.
+   - **Post the review as EXACTLY ONE `### Code review` comment** (plus, optionally, ONE separate `### Simplification opportunities` comment). Never split a single review across multiple comments, never post the review "in pieces", and never post a fragment followed by "full review below" / "posted separately via API". Build the entire comment body as one string and post it in a single `gh pr comment` call.
+   - **If a code permalink won't format**, do NOT retry by posting test comments or alternate fragments. Fall back to a plain `path/to/file.py:L120-L125` citation inside the one comment. A correctly-posted plain-path finding beats a perfectly-formatted permalink you posted three broken attempts to reach.
+   - **If you are unsure whether you already posted**, run `gh pr view <n> --json comments` and check — do not post a probe to find out.
+
+   Post UP TO TWO separate comments depending on which buckets from step 6 are non-empty:
 
    a. **Code review bucket non-empty** → post one comment with the standard `### Code review` header and the "Found N issues:" format (see template below). This block is the merge-gate signal — downstream CI parses this exact header.
    b. **Simplification bucket non-empty** → post a SEPARATE comment with the header `### Simplification opportunities`. This block is informational and explicitly does NOT block merge — the merge-gate parser ignores it. The note that says so is part of the template.
