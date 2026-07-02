@@ -1,5 +1,5 @@
 ---
-allowed-tools: Bash(gh issue view:*), Bash(gh search:*), Bash(gh issue list:*), Bash(gh pr comment:*), Bash(gh pr diff:*), Bash(gh pr view:*), Bash(gh pr list:*), Bash(python -m py_compile:*), Bash(python3 -m py_compile:*), Bash(bash -n:*), Bash(node --check:*), Bash(git show:*), Bash(git blame:*), Bash(git log:*), Bash(wc:*)
+allowed-tools: Bash(gh issue view:*), Bash(gh search:*), Bash(gh issue list:*), Bash(gh pr comment:*), Bash(gh pr diff:*), Bash(gh pr view:*), Bash(gh pr list:*), Bash(python -m py_compile:*), Bash(python3 -m py_compile:*), Bash(bash -n:*), Bash(node --check:*), Bash(git show:*), Bash(git blame:*), Bash(git log:*), Bash(wc:*), Write(//tmp/**)
 description: Code review a pull request
 disable-model-invocation: false
 ---
@@ -46,11 +46,16 @@ To do this, follow these steps precisely:
 
    If BOTH buckets are empty, do not proceed (skip to no-issues comment in step 8). Otherwise proceed.
 7. Use a Haiku agent to repeat the eligibility check from #1, to make sure that the pull request is still eligible for code review.
-8. Finally, use the gh bash command to comment back on the pull request.
+8. Finally, comment back on the pull request: compose the comment body with the Write tool, then post it with `gh pr comment <n> --body-file <path>`.
 
    **Posting discipline (MANDATORY — read before posting):**
-   - **`gh pr comment` is pre-authorized and always works.** Do NOT post a `test`, `PLACEHOLDER`, `ping`, "checking auth", or any other probe/scratch comment to verify that posting works or to check formatting. It does work. Compose the real comment in full, then post it once. Probe comments leak onto the PR, get parsed by the downstream merge gate, and are pure noise.
-   - **Post the review as EXACTLY ONE `### Code review` comment** (plus, optionally, ONE separate `### Simplification opportunities` comment). Never split a single review across multiple comments, never post the review "in pieces", and never post a fragment followed by "full review below" / "posted separately via API". Build the entire comment body as one string and post it in a single `gh pr comment` call.
+   - **Compose the ENTIRE comment body with the Write tool at the fixed literal path `/tmp/code-review-comment.md`**, then post it once with `gh pr comment <n> --body-file /tmp/code-review-comment.md`. The Write tool and this exact `gh pr comment --body-file` form are pre-authorized and always work. This is the ONLY permitted posting mechanism: the body must never travel as a shell string argument, because backticks, `$(...)`, `$VAR`, and backslashes in review prose get shell-evaluated — mangled comments at best, command substitution at worst.
+   - **FORBIDDEN posting mechanisms** — do not use any of these, they will mangle or shell-evaluate the body:
+     - `--body` / `-b` string flags (`gh pr comment <n> --body "..."` in any quoting style);
+     - shell-based file assembly (`echo`/`printf`/`cat` with heredocs or redirects to build the comment file) — the file is built by the Write tool only;
+     - variable-interpolated or computed paths (`--body-file "$TMPDIR/..."`, `--body-file $(mktemp)`) — the path is the fixed literal `/tmp/code-review-comment.md`.
+   - **Do NOT post probe/scratch comments.** No `test`, `PLACEHOLDER`, `ping`, "checking auth", or any other comment to verify that posting works or to check formatting. It does work. Compose the real comment in full via Write, then post it once. Probe comments leak onto the PR, get parsed by the downstream merge gate, and are pure noise.
+   - **Post the review as EXACTLY ONE `### Code review` comment** (plus, optionally, ONE separate `### Simplification opportunities` comment, composed the same way at the fixed literal path `/tmp/code-review-simplification.md` and posted with `gh pr comment <n> --body-file /tmp/code-review-simplification.md`). Never split a single review across multiple comments, never post the review "in pieces", and never post a fragment followed by "full review below" / "posted separately via API". Write the entire comment body to the file in one Write call and post it in a single `gh pr comment --body-file` call.
    - **If a code permalink won't format**, do NOT retry by posting test comments or alternate fragments. Fall back to a plain `path/to/file.py:L120-L125` citation inside the one comment. A correctly-posted plain-path finding beats a perfectly-formatted permalink you posted three broken attempts to reach.
    - **If you are unsure whether you already posted**, run `gh pr view <n> --json comments` and check — do not post a probe to find out.
 
