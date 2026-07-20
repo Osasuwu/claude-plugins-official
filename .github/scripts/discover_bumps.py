@@ -215,7 +215,7 @@ def main() -> int:
 
     # Console summary
     print(f"Checked {checked} SHA-pinned plugins", file=sys.stderr)
-    print(f"Stale: {len(bumps)}, applying: {len(emitted)}", file=sys.stderr)
+    print(f"Stale: {len(bumps)}, applying: {len(emitted)}", file=sys.stderr)ted)}", file=sys.stderr)
     if dead:
         print(f"Dead upstream: {', '.join(dead)}", file=sys.stderr)
     for b in emitted:
