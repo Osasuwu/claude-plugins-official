@@ -31,7 +31,7 @@ Performs automated code review on a pull request using multiple specialized agen
    - **Agent #12** (Haiku, *integration tripwire*): Mechanically applies the project's own integration checklist (CLAUDE.md / AGENTS.md "обязательно для каждого изменения"-style rules) as touched-X-implies-touched-Y checks — backend↔frontend, model↔consumers, config↔environments, pipeline-stage↔downstream — flagging dangling co-changes the diff omits; returns nothing if no such checklist exists
 5. Scores each issue 0-100 for confidence level
 6. Filters out issues below 80 confidence threshold, then splits survivors into a **code-review bucket** (#1–9, #11, #12, merge-gate) and a **simplification bucket** (#10, informational)
-7. Posts the high-confidence findings — a `### Code review` comment for the merge-gate bucket and, when non-empty, a separate `### Simplification opportunities` comment that does not block merge
+7. Posts EXACTLY ONE `### Code review` comment: the merge-gate findings (or "No issues found."), followed by a machine-parseable JSON findings block (HTML-comment-wrapped, always present, schema-versioned) for a downstream review-debt collector, followed — when the simplification bucket is non-empty — by a folded `### Simplification opportunities` section. All three pieces live in the same comment; there is never a second comment.
 
 **Usage:**
 ```bash
@@ -65,8 +65,11 @@ Performs automated code review on a pull request using multiple specialized agen
 - Links directly to code with full SHA and line ranges
 
 **Review comment format:**
+
+Everything below is posted as ONE comment — findings, JSON block, and (when non-empty) the simplification section:
+
 ```markdown
-## Code review
+### Code review
 
 Found 3 issues:
 
@@ -81,7 +84,44 @@ https://github.com/owner/repo/blob/abc123.../src/auth.ts#L88-L95
 3. Inconsistent naming pattern (src/conventions/CLAUDE.md says "Use camelCase for functions")
 
 https://github.com/owner/repo/blob/abc123.../src/utils.ts#L23-L28
+
+<!-- code-review-findings
+{
+  "schema_version": 1,
+  "findings": [
+    {
+      "severity": "MEDIUM",
+      "rule": "guideline-compliance",
+      "file": "src/auth.ts",
+      "line": 67,
+      "description": "Missing error handling for OAuth callback"
+    },
+    {
+      "severity": "MEDIUM",
+      "rule": "bug-scan",
+      "file": "src/auth.ts",
+      "line": 88,
+      "description": "Memory leak: OAuth state not cleaned up"
+    },
+    {
+      "severity": "MEDIUM",
+      "rule": "guideline-compliance",
+      "file": "src/utils.ts",
+      "line": 23,
+      "description": "Inconsistent naming pattern"
+    }
+  ]
+}
+-->
+
+### Simplification opportunities
+
+1. <brief description of the simpler shape> — <why it's simpler, what it costs>
+
+https://github.com/owner/repo/blob/abc123.../src/utils.ts#L40-L90
 ```
+
+The JSON block (`<!-- code-review-findings ... -->`) is always present, even when both buckets are empty (`"findings": []`) — it's a machine-parseable superset of the human-readable sections, meant for a downstream review-debt collector, not for the merge gate. See `commands/code-review.md` §8.1 for the full schema and degradation contract.
 
 **Confidence scoring:**
 - **0**: Not confident, false positive

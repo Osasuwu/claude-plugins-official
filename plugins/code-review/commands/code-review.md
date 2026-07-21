@@ -44,7 +44,7 @@ To do this, follow these steps precisely:
    - **Code review bucket**: findings from agents #1–9, #11, and #12.
    - **Simplification bucket**: findings from agent #10.
 
-   If BOTH buckets are empty, do not proceed (skip to no-issues comment in step 8). Otherwise proceed.
+   Every finding surviving this filter is by construction sub-MAJOR: this command never instructs any agent to emit a CRITICAL/MAJOR/BLOCKING verdict, so everything in either bucket is informational-or-fix-worthy but never merge-blocking on its own (the two-gate model's block path is reserved for a severity class this plugin does not produce). Both buckets — including an empty result — feed the JSON findings block in step 8; do not skip step 8 even when both buckets are empty, since the block must still be emitted (empty).
 7. Use a Haiku agent to repeat the eligibility check from #1, to make sure that the pull request is still eligible for code review.
 8. Finally, comment back on the pull request: compose the comment body with the Write tool, then post it with `gh pr comment <n> --body-file <path>`.
 
@@ -55,16 +55,49 @@ To do this, follow these steps precisely:
      - shell-based file assembly (`echo`/`printf`/`cat` with heredocs or redirects to build the comment file) — the file is built by the Write tool only;
      - variable-interpolated or computed paths (`--body-file "$TMPDIR/..."`, `--body-file $(mktemp)`) — the path is the fixed literal `/tmp/code-review-comment.md`.
    - **Do NOT post probe/scratch comments.** No `test`, `PLACEHOLDER`, `ping`, "checking auth", or any other comment to verify that posting works or to check formatting. It does work. Compose the real comment in full via Write, then post it once. Probe comments leak onto the PR, get parsed by the downstream merge gate, and are pure noise.
-   - **Post the review as EXACTLY ONE `### Code review` comment** (plus, optionally, ONE separate `### Simplification opportunities` comment, composed the same way at the fixed literal path `/tmp/code-review-simplification.md` and posted with `gh pr comment <n> --body-file /tmp/code-review-simplification.md`). Never split a single review across multiple comments, never post the review "in pieces", and never post a fragment followed by "full review below" / "posted separately via API". Write the entire comment body to the file in one Write call and post it in a single `gh pr comment --body-file` call.
+   - **Post the review as EXACTLY ONE comment, always.** There is no second comment, ever, for any reason — the simplification section and the JSON findings block both live INSIDE this one `### Code review` comment (see template below), never in a follow-up comment, never posted "separately via API". This replaces the older two-comment design (`/tmp/code-review-simplification.md` no longer exists) precisely because agents kept collapsing to one comment anyway and silently dropping the simplification content — folding it in removes the ambiguity. Write the entire comment body to `/tmp/code-review-comment.md` in one Write call and post it in a single `gh pr comment --body-file` call.
    - **If a code permalink won't format**, do NOT retry by posting test comments or alternate fragments. Fall back to a plain `path/to/file.py:L120-L125` citation inside the one comment. A correctly-posted plain-path finding beats a perfectly-formatted permalink you posted three broken attempts to reach.
    - **If you are unsure whether you already posted**, run `gh pr view <n> --json comments` and check — do not post a probe to find out.
 
-   Post UP TO TWO separate comments depending on which buckets from step 6 are non-empty:
+   Compose the single comment as follows, regardless of which buckets from step 6 are non-empty:
 
-   a. **Code review bucket non-empty** → post one comment with the standard `### Code review` header and the "Found N issues:" format (see template below). This block is the merge-gate signal — downstream CI parses this exact header.
-   b. **Simplification bucket non-empty** → post a SEPARATE comment with the header `### Simplification opportunities`. This block is informational and explicitly does NOT block merge — the merge-gate parser ignores it. The note that says so is part of the template.
-   c. **Both buckets empty** → post the single "No issues found" comment (see template).
-   d. If the Code review bucket is empty but the Simplification bucket is non-empty, post the simplification comment AND the "No issues found" code-review comment (so the gate's no-comment path doesn't misfire on the bare simplification comment).
+   a. **Code review bucket non-empty** → open with the `### Code review` header and the "Found N issues:" format (see template below). This is the merge-gate signal — downstream CI parses this exact header/line.
+   b. **Code review bucket empty** → open with the `### Code review` header and "No issues found." (see template below).
+   c. **Always** append the JSON findings block (step 8.1 below) after the numbered list / "No issues found." line, regardless of bucket contents.
+   d. **Simplification bucket non-empty** → append a `### Simplification opportunities` section AFTER the JSON block, inside the same comment (see template below). This section is informational and does NOT block merge — the merge-gate parser only recognizes the `### Code review` header and the CRITICAL/MAJOR/BLOCKING severity/pass vocabulary; a `### Simplification opportunities` heading further down the same comment body is inert to it.
+   e. **Simplification bucket empty** → omit the `### Simplification opportunities` section entirely (no empty-section placeholder).
+
+   ### 8.1 JSON findings block (machine-parseable, informational, never gates)
+
+   Immediately after the `### Code review` numbered list (or the "No issues found." line), embed one HTML-comment-wrapped JSON block listing every finding from BOTH buckets (Code review bucket + Simplification bucket) — this is a superset view for a downstream review-debt collector, distinct from the human-facing sections above. Emit it in **every** case, including when both buckets are empty (`"findings": []`).
+
+   Schema (`schema_version: 1`):
+
+   ```
+   <!-- code-review-findings
+   {
+     "schema_version": 1,
+     "findings": [
+       {
+         "severity": "MEDIUM",
+         "rule": "diff-coherence",
+         "file": "path/to/file.ts",
+         "line": 42,
+         "description": "one-line description of the finding"
+       }
+     ]
+   }
+   -->
+   ```
+
+   Field rules:
+   - `severity` — derived from which bucket produced the finding, NOT a per-finding judgment call: every **Code review bucket** finding (agents #1–9, #11, #12) gets `"MEDIUM"`; every **Simplification bucket** finding (agent #10) gets `"INFO"`. This is a coarse, bucket-level severity — never CRITICAL/MAJOR/BLOCKING (this plugin does not produce that class) and never a finer-grained per-issue severity (out of scope for this contract; a future collector-side refinement can re-derive finer severity from `rule` if needed).
+   - `rule` — a stable slug identifying which agent flagged the finding, one of: `guideline-compliance` (#1), `bug-scan` (#2), `git-blame-context` (#3), `prior-pr-comments` (#4), `logic-leak` (#5), `diff-coherence` (#6), `cross-device` (#7), `smoke-static-check` (#8), `structural-growth` (#9), `simplification-scout` (#10), `ac-conformance` (#11), `integration-tripwire` (#12). Use exactly these slugs so the downstream collector can key on them without fuzzy-matching prose.
+   - `file` / `line` — same file path and line number cited in the human-readable finding directly above. If a finding spans a range, use the range's start line.
+   - `description` — the same one-line description used in the numbered list / simplification entry above it (no need to duplicate the full permalink here — `file`/`line` already localize it).
+   - When there are zero findings across both buckets, emit `"findings": []` — the block itself is still present, never omitted.
+
+   **Degradation contract (documented behavior, AC6):** the block is generated by an LLM composing markdown, so a downstream collector MUST treat a missing block, an unparseable block (invalid JSON), or a block with an unrecognized `schema_version` as **zero findings for this PR**, not as an error to surface to the user — log/skip and fail closed on ambiguity, do not block on it. This block is informational-only in the same sense as the Simplification section: its absence or malformation must never affect the merge-gate verdict (step 5 of the two-gate model reads only the `### Code review` header and CRITICAL/MAJOR/BLOCKING vocabulary, never this block).
 
    When writing comments, keep in mind to:
    - Keep your output brief
@@ -96,7 +129,7 @@ Notes:
 - Use `gh` to interact with Github (eg. to fetch a pull request, or to create inline comments), rather than web fetch
 - Make a todo list first
 - You must cite and link each bug (eg. if referring to a CLAUDE.md, you must link it)
-- For your final comment, follow the following format precisely (assuming for this example that you found 3 issues):
+- For your final comment, follow the following format precisely (assuming for this example that you found 3 code-review-bucket issues and 2 simplification-bucket opportunities — everything below is ONE comment):
 
 ---
 
@@ -116,13 +149,38 @@ Found 3 issues:
 
 <link to file and line with full sha1 + line range for context>
 
+<!-- code-review-findings
+{
+  "schema_version": 1,
+  "findings": [
+    {"severity": "MEDIUM", "rule": "guideline-compliance", "file": "src/auth.ts", "line": 67, "description": "<brief description of bug>"},
+    {"severity": "MEDIUM", "rule": "bug-scan", "file": "src/utils.ts", "line": 23, "description": "<brief description of bug>"},
+    {"severity": "MEDIUM", "rule": "diff-coherence", "file": "src/handler.ts", "line": 101, "description": "<brief description of bug>"},
+    {"severity": "INFO", "rule": "simplification-scout", "file": "src/parser.ts", "line": 40, "description": "<one-line description of the simpler shape>"},
+    {"severity": "INFO", "rule": "simplification-scout", "file": "src/format.ts", "line": 12, "description": "<one-line description of the simpler shape>"}
+  ]
+}
+-->
+
+### Simplification opportunities
+
+Informational — does not block merge. The standard review gate parses only the `### Code review` header and CRITICAL/MAJOR/BLOCKING severity vocabulary; this section and the JSON block above are both inert to it.
+
+1. <one-line description of the simpler shape> (in `<file>` lines L<start>-L<end>)
+
+<link to file and line range with full sha1>
+
+2. <one-line description of the simpler shape> (in `<file>` lines L<start>-L<end>)
+
+<link to file and line range with full sha1>
+
 🤖 Generated with [Claude Code](https://claude.ai/code)
 
 <sub>- If this code review was useful, please react with 👍. Otherwise, react with 👎.</sub>
 
 ---
 
-- Or, if you found no issues:
+- Or, if you found no issues in either bucket (still ONE comment, JSON block still present with an empty array):
 
 ---
 
@@ -130,23 +188,39 @@ Found 3 issues:
 
 No issues found. Checked for bugs and CLAUDE.md compliance.
 
+<!-- code-review-findings
+{
+  "schema_version": 1,
+  "findings": []
+}
+-->
+
 🤖 Generated with [Claude Code](https://claude.ai/code)
 
 ---
 
-- If the simplification bucket is non-empty, post this AS A SEPARATE comment (in addition to the code-review comment, whether that one had issues or was "No issues found"):
+- Or, if the code review bucket is empty but the simplification bucket is non-empty (still ONE comment — "No issues found" plus the JSON block plus the simplification section, never a bare simplification-only comment):
 
 ---
 
+### Code review
+
+No issues found. Checked for bugs and CLAUDE.md compliance.
+
+<!-- code-review-findings
+{
+  "schema_version": 1,
+  "findings": [
+    {"severity": "INFO", "rule": "simplification-scout", "file": "src/parser.ts", "line": 40, "description": "<one-line description of the simpler shape>"}
+  ]
+}
+-->
+
 ### Simplification opportunities
 
-Informational — does not block merge. The standard review gate parses only the `### Code review` comment.
+Informational — does not block merge. The standard review gate parses only the `### Code review` header and CRITICAL/MAJOR/BLOCKING severity vocabulary; this section and the JSON block above are both inert to it.
 
 1. <one-line description of the simpler shape> (in `<file>` lines L<start>-L<end>)
-
-<link to file and line range with full sha1>
-
-2. <one-line description of the simpler shape> (in `<file>` lines L<start>-L<end>)
 
 <link to file and line range with full sha1>
 
