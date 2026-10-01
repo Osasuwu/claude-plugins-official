@@ -14,10 +14,10 @@ Performs automated code review on a pull request using multiple specialized agen
 
 **What it does:**
 1. Checks if review is needed (skips closed, draft, trivial, or already-reviewed PRs)
-2. Gathers relevant guideline files from the repository — root and per-directory CLAUDE.md, plus SOUL.md / AGENTS.md / SKILL.md when present (many projects split behavioral and coding rules across separate files)
+2. Gathers relevant guideline files from the repository — root and per-directory rules files (`AGENTS.md` and/or `CLAUDE.md`, whichever exist), plus SOUL.md / SKILL.md when present (many projects split behavioral and coding rules across separate files)
 3. Summarizes the pull request changes
 4. Launches 12 parallel agents to independently review:
-   - **Agent #1** (Sonnet): Guideline-file compliance (CLAUDE.md + related)
+   - **Agent #1** (Sonnet): Guideline-file compliance (AGENTS.md / CLAUDE.md + related)
    - **Agent #2** (Sonnet): Shallow scan for obvious bugs in the changes
    - **Agent #3** (Sonnet): Git blame / history context analysis
    - **Agent #4** (Sonnet): Comments on prior PRs that touched these files
@@ -186,7 +186,7 @@ This plugin is included in the Claude Code repository. The command is automatica
 
 - Git repository with GitHub integration
 - GitHub CLI (`gh`) installed and authenticated
-- CLAUDE.md files (optional but recommended for guideline checking)
+- An `AGENTS.md` or `CLAUDE.md` rules file (optional but recommended for guideline checking)
 
 ## Troubleshooting
 
